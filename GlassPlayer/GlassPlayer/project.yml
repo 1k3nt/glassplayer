@@ -8,19 +8,21 @@ on:
 jobs:
   build:
     runs-on: macos-26
+    defaults:
+      run:
+        working-directory: GlassPlayer/GlassPlayer
     steps:
       - uses: actions/checkout@v4
 
-      - name: Locate project folder
+      - name: Check project folder
+        working-directory: ${{ github.workspace }}
         run: |
-          FILE=$(find . -name project.yml -not -path './.git/*' | head -n 1)
-          if [ -z "$FILE" ]; then
-            echo "project.yml not found. Repo contents:"
-            find . -not -path './.git/*' | head -n 60
+          if [ ! -f GlassPlayer/GlassPlayer/project.yml ]; then
+            echo "project.yml is NOT in GlassPlayer/GlassPlayer. Repo contents:"
+            find . -not -path './.git/*' | head -60
             exit 1
           fi
-          echo "Found $FILE"
-          echo "PROJECT_DIR=$(dirname "$FILE")" >> "$GITHUB_ENV"
+          echo "Found project.yml"
 
       - name: Show Xcode
         run: xcodebuild -version
@@ -29,7 +31,6 @@ jobs:
         run: brew install xcodegen
 
       - name: Inject Spotify Client ID (optional repo variable SPOTIFY_CLIENT_ID)
-        working-directory: ${{ env.PROJECT_DIR }}
         env:
           SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
         run: |
@@ -38,13 +39,23 @@ jobs:
           fi
 
       - name: Generate Xcode project
-        working-directory: ${{ env.PROJECT_DIR }}
         run: xcodegen generate
 
       - name: Build (unsigned)
-        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           xcodebuild \
             -project GlassPlayer.xcodeproj \
             -scheme GlassPlayer \
             -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry GlassPlayer.ipa
